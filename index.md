@@ -82,7 +82,7 @@ The lists are ordered according to the jobs of the benchmark instance (e.g. Job 
 
 The functions used to determine the makespan and workload balance are provided by the competition to make sure everyone uses the same metrics. The required simulation functions are also provided. 
 
-In case there are any open questions about the submission process or format, you can contact: david.hutter@fhv.at
+In case there are any open questions about the submission process or format, you can contact: <david.hutter@fhv.at>
 
 ### Paper 
 
