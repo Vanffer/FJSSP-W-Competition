@@ -4,6 +4,7 @@ import numpy as np
 import statistics
 
 def run_n_simulations(s, e, m, w, js, d, uncertainty_parameters, n_simulations, uncertainty_source : str = 'worker', processing_times : bool = False, machine_breakdowns : bool = False, worker_unavailabilites : bool = False):
+    # 便捷函数：重复构建图并运行仿真，返回多次仿真结果与统计量。
     results = []
     for i in range(n_simulations):
         g = Graph(s, e, m, w, js)
@@ -19,6 +20,8 @@ def run_n_simulations(s, e, m, w, js, d, uncertainty_parameters, n_simulations, 
 class Graph:
 
     def __init__(self, s, e, a, w, js, leftshift : bool = False, buffers : list[float] = []):
+        # Graph 以“工序节点 + 先后约束边”的形式维护排程。
+        # 约束来源包括：同 job 前后关系、同机器冲突、同工人冲突。
         self.roots = []
         self.leftshift = leftshift
         self.js = copy.deepcopy(js)
@@ -41,6 +44,7 @@ class Graph:
         self.update()
 
     def get_vectors(self):
+        # 从节点对象回导向量表示，便于与外部 API 对接。
         s = []
         e = []
         m = []
@@ -55,6 +59,7 @@ class Graph:
         return s, e, m, w, b
 
     def add_child(self, current, open_list, closed_list):
+        # 拓扑更新时保证父节点先于子节点进入 open_list。
         in_open = current in open_list
         in_closed = current in closed_list
         if in_open or in_closed:
@@ -65,10 +70,12 @@ class Graph:
         open_list.append(current)
 
     def real_duration(self, d, wv):
+        # 根据 beta 分布扰动生成真实加工时长。
         du = d*(1.0+(wv[2] + random.betavariate(wv[0], wv[1])))
         return du
     
     def update(self):
+        # 按拓扑顺序传播约束，更新所有节点开始/结束时间。
         open_list = []
         closed_list = []
         open_list.extend(self.roots)
@@ -88,6 +95,7 @@ class Graph:
         return n_changes
 
     def simulate_processing_times(self, d, wv, uncertainty_source : str = 'worker'):
+        # 仅模拟加工时间不确定性（不模拟停机/缺勤）。
         open_list = []
         closed_list = []
         open_list.extend(self.roots)
@@ -100,11 +108,15 @@ class Graph:
                     print('something went wrong')
             for child in current.children:
                 self.add_child(child, open_list, closed_list)
+            # 不确定性既可绑定工人，也可绑定机器。
             new_duration = self.real_duration(d[current.operation][current.machine][current.worker], wv[current.worker%len(wv)]) if uncertainty_source == 'worker' else self.real_duration(d[current.operation][current.machine][current.worker], wv[current.machine%len(wv)])
             changes += current.update_time_slot(new_duration)
         return changes + self.update()
 
     def generate_events(self, up):
+        # 为每个资源（机器或工人）生成随机中断事件：
+        # - 到达时间：指数分布
+        # - 持续时间：Weibull 分布
         events = []
         makespan = max(self.e)
         for i in range(len(up)):
@@ -130,6 +142,7 @@ class Graph:
         return all_events
     
     def find_affected_operation(self, start, end, machine = -1, worker = -1):
+        # 在给定中断时间窗内，定位受影响的最早工序。
         search = []
         find = 0
         
@@ -154,6 +167,7 @@ class Graph:
         return earliest
 
     def simulate_machine_breakdowns(self, d):
+        # 基于当前排程长度随机生成机器故障事件并传播影响。
         n_machines = len(d[0])
         makespan_original = max(self.e)
         lam = (1.0/n_machines)/makespan_original
@@ -176,6 +190,7 @@ class Graph:
         return self.update()
 
     def simulate_worker_unavailabilities(self, d):
+        # 随机生成工人不可用事件并更新排程。
         n_workers = len(d[0][0])
         makespan_original = max(self.e)
         lam = ((1.0/n_workers)/makespan_original)/2.0
@@ -198,6 +213,7 @@ class Graph:
         return self.update()
 
     def simulate(self, d, wv = None, processing_times : bool = False, machine_breakdowns : bool = False, worker_unavailabilities : bool = False, uncertainty_source : str = 'worker'):
+        # 统一入口：按开关叠加多种不确定性来源。
         n_conflicts = 0
         if processing_times:
             n_conflicts += self.simulate_processing_times(d, wv, uncertainty_source)
@@ -208,6 +224,7 @@ class Graph:
         return n_conflicts
 
     def get_predecessors(self, node):
+        # BFS 获取所有前驱（含自身）。
         open_list = [node]
         closed_list = []
         while len(open_list) > 0:
@@ -219,6 +236,7 @@ class Graph:
         return closed_list
 
     def get_successors(self, node):
+        # BFS 获取所有后继（含自身）。
         open_list = [node]
         closed_list = []
         while len(open_list) > 0:
@@ -239,6 +257,7 @@ class Graph:
         return max(self.e)
 
     def plot_data(self, strict : bool = False):
+        # 汇总可视化所需数据（关键路径、资源分组、邻接线段等）。
         s = []
         e = []
         m = []
@@ -322,6 +341,7 @@ class Node:
     leftshift = False
 
     def __init__(self, s, e, m, w, js, b, i):
+        # 每个 Node 对应一个固定工序 i。
         self.start = s[i]
         self.end = e[i]
         self.job = js[i]
@@ -334,6 +354,10 @@ class Node:
         self.operation = i
 
     def add_neighbours(self, m, w, js, nodes, i):
+        # 建立三类邻接关系：
+        # 1) job 内前后工序
+        # 2) 同机器先后
+        # 3) 同工人先后
         if i > 0 and js[i-1] == js[i]:
             self.parents.append(nodes[i-1])
         if i+1 < len(js) and js[i+1] == js[i]:
@@ -363,6 +387,7 @@ class Node:
             self.children.append(nodes[same_worker[wi+1]])
 
     def update_values(self):
+        # 在固定时长下，根据父节点结束时间修正当前时间窗。
         s = self.start
         e = self.end
         d = e-s
@@ -379,6 +404,7 @@ class Node:
         return change
 
     def update_time_slot(self, du):
+        # 在时长变化后重算当前节点时间窗，并可选左移。
         s = self.start
         #d = e - s # determine real duration here
         d = du#[self.operation][self.machine][self.worker]

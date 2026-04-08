@@ -4,6 +4,7 @@ import random
 import io
 
 def read_file(source : str, id : int, path : str) -> list[str]:
+    # 根据 source 编号规则拼接原始 benchmark 文件名。
     if source.startswith('0'):
         target_file = f'Behnke{id}.fjs'
     elif source.startswith('1'):
@@ -26,12 +27,14 @@ def read_file(source : str, id : int, path : str) -> list[str]:
         target_file = f'Fattahi{id}.fjs'
 
     path += f'\\{source}\\{target_file}'
+    # 返回原始文本行，后续会按空格解析。
     file = open(path, 'r')
     return file.readlines()
 
 def write_file(benchmark : list[list[int]], path : str, file_name : str) -> None:
+    # 将重写后的二维整数列表写回 .fjs 文本格式。
     file = open(path + file_name, 'w')
-    # there's probably an easier way to do this
+    # 逐行拼接空格分隔字段并输出。
     for line in benchmark:
         output = ''
         for value in line:
@@ -40,12 +43,16 @@ def write_file(benchmark : list[list[int]], path : str, file_name : str) -> None
     file.close()
 
 def rewrite_benchmark(source : str, id : int, path : str, lower_bound : float = 0.9, upper_bound : float = 1.1, worker_amount : int = 3) -> list[list[int]]:
+    # 把 FJSSP 实例随机扩展为 FJSSP-W：
+    # - 给每个机器选项随机分配若干可行工人
+    # - 根据上下界随机扰动原始加工时间
     file_content : list[str] = read_file(source, id, path)
     
     values = [list(map(float, x.strip('\n').split(' '))) for x in file_content]
     result = []
+    # 第一行新增 worker_amount 字段。
     result.append([int(values[0][0]), int(values[0][1]), worker_amount])
-    #original: 2 2 1 2 1 25 2 30 2 1 1 37 2 1 1 2 32 2 2 1 24 2 33 -> 2 operations, o1 -> 2 workstations, o1 on m1 -> 2 worker -> o1 on m1 with w1 -> 25, o1 on m1 with w2 -> 30, ...
+    # 原格式（FJSSP）变更为包含“每个机器可行工人与时长”的 FJSSP-W 格式。
     for line in values[1:]:
         new_line = []
         idx = 0
@@ -65,6 +72,7 @@ def rewrite_benchmark(source : str, id : int, path : str, lower_bound : float = 
                 idx += 1 # duration
                 original_duration = line[idx]
                 for k in options: # for each possible worker
+                    # 为每个工人生成在 [lb, ub] 乘性区间内的加工时间。
                     worker_duration = int(random.uniform(original_duration * lower_bound, original_duration * upper_bound) + 0.5)
                     new_line.append(k)
                     new_line.append(worker_duration)
@@ -72,6 +80,7 @@ def rewrite_benchmark(source : str, id : int, path : str, lower_bound : float = 
     return result
 
 def rewrite_all_from_source(source : str, read_path : str, write_path : str, lower_bound : float = 0.9, upper_bound : float = 1.1, worker_amount : int = 3) -> None:
+    # 批量重写某个 source 目录下所有实例。
     full_path = read_path + '/' + source + '/'
     for i in range(len(os.listdir(full_path))):
         result = rewrite_benchmark(source, i+1, read_path, lower_bound, upper_bound, worker_amount)
@@ -100,11 +109,13 @@ for i in range(len(sources)):
     rewrite_all_from_source(sources[source], 0.9, 1.1, 3, read_path, write_path)"""
 
 def get_available_sources():
+    # 返回可用 benchmark 源目录名。
     return sources
 
 write_path = currentdir + '/../benchmarks_with_workers/'
 
 def rewrite_all_with_workers(read_path: str, write_path: str):
+    # 依据机器数量自动设置 worker 数量（1.5 倍）并批量转换全部来源。
     for benchmark_source in sources:
         full_path = read_path + benchmark_source + '/'
         for i in range(len(os.listdir(full_path))):
@@ -116,6 +127,7 @@ def rewrite_all_with_workers(read_path: str, write_path: str):
             write_file(benchmark=result,path=write_path, file_name=f'{benchmark_source}_{i+1}_workers.fjs')
 
 def rewrite_all_from_source_with_workers(source: str, read_path: str, write_path: str):
+    # 针对单一来源批量转换，worker 数量按机器数自适应。
     full_path = read_path + source + '/'
     for i in range(len(os.listdir(full_path))):
         file_content : list[str] = read_file(source, i+1, read_path)
@@ -126,6 +138,7 @@ def rewrite_all_from_source_with_workers(source: str, read_path: str, write_path
         write_file(benchmark=result,path=write_path, file_name=f'{source}_{i+1}_workers.fjs')
 
 def rewrite_benchmark_with_workers(source : str, id: int, read_path : str, write_path : str) -> None:
+    # 转换指定来源的单个实例。
     file_content : list[str] = read_file(source, id, read_path)
     values = file_content[0].split(' ')
     workstation_amount = int(values[1])
